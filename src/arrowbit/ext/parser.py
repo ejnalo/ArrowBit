@@ -1,0 +1,328 @@
+import time
+from typing import Any
+
+from .core import x_tokens
+
+
+class Object:
+	def __init__(self, _type: str, value: str = 'null'):
+		self.id = hex(round(time.time()))[2:].upper()
+		self.type = _type
+		self.value: Any = value
+
+	def copy(self) -> Object:
+		o = Object(self.type, self.value)
+
+		return o
+
+	def __repr__(self):
+		return f"Object(type={self.type}, value=\"{self.value}\")"
+
+class Variable:
+	def __init__(self, name: str, obj: Object = None): # = Object('NULL')):
+		self.name = name
+		self.obj = obj
+
+	def __repr__(self):
+		return f"Variable(name='{self.name}', value=\"{self.obj.value}\", type={self.obj.type})"
+
+class Argument(Variable):
+	def __init__(self, name: str, obj: Object, description: str = ""):
+		super().__init__(name, obj)
+
+		self.description = description
+
+	def __repr__(self):
+		return f"Argument(name='{self.name}', value=\"{self.obj.value}\", type={self.obj.type}, description=\"{self.description}\")"
+
+class Command:
+	def __init__(self):
+		self.path = '.'
+		self.args: list[Object] = []
+		self.kwargs: list[Argument] = []
+		self.context: list[str] = []
+		self.unparsed: str = ""
+
+	def __repr__(self):
+		return f"Command(path={self.path}, args={[ obj.type + "[" + str(obj.value) + "]" for obj in self.args ]}, kwargs={[ arg.name + ":" + arg.obj.type + "=" + str(arg.obj.value) for arg in self.kwargs ]}, context={self.context}, unparsed={self.unparsed})"
+
+	def get(self, key: str, alt: str = None, strict: bool = False) -> Object:
+		for arg in self.kwargs:
+			if arg.name == key:
+				return arg.obj
+		else:
+			if alt:
+				return alt
+
+			if strict:
+				raise ValueError(f"Didn't find {key} in defined arguments.")
+
+	def copy(self) -> Command:
+		c = Command()
+
+		c.path = self.path
+
+		for arg in self.kwargs:
+			a = Argument(arg.name, arg.obj.copy(), arg.description)
+			c.kwargs.append(a)
+
+		for obj in self.args:
+			o = obj.copy()
+			c.args.append(o)
+
+		c.context = self.context.copy()
+		c.unparsed = self.unparsed
+
+		return c
+
+	def map_kwargs(self) -> dict[str, Object]:
+		return { arg.name: arg.obj.value for arg in self.kwargs }
+
+	def list_args(self) -> tuple:
+		return tuple([ obj.value for obj in self.args ])
+
+def parse_val(entry: str) -> Object:
+	if (entry.startswith('"') and entry.endswith('"')) or (entry.startswith("'") and entry.endswith("'")):
+		return Object('STR', entry[1:-1])
+
+	elif (entry.startswith('{') and entry.endswith('}')):
+		return Object('CMD', parse_cmd(entry[1:-1]))
+
+	elif (entry.startswith('<') and entry.endswith('>')): # TODO: Real evaluation
+		condition = entry[1:-1]
+
+		result = eval(condition, {})
+
+		if result is True:
+			return Object('BOOL', 'TRUE')
+		elif result is False:
+			return Object('BOOL', 'FALSE')
+		else:
+			return Object('INT', result)
+
+	elif (entry.startswith('[') and entry.endswith(']')):
+		if entry == '[]':
+			return Object('LIST', [])
+
+		items = []
+		current = ''
+		_is_open = False
+		_closes = ''
+
+		_matches = {
+			'(': ')',
+			"'": "'",
+			'"': '"',
+			'{': '}',
+			'[': ']',
+			'<': '>'
+		}
+
+		for c in entry[1:-1]:
+			if not _is_open and c in _matches:
+				_is_open = True
+				_closes = _matches[c]
+
+			elif _is_open and c == _closes:
+				_is_open = False
+				_closes = ''
+
+			if c == ',' and not _is_open:
+				items.append(current.strip())
+				current = ''
+			else:
+				current += c
+
+		if current.strip() != '':
+			items.append(current.strip())
+
+		obj = Object('LIST', [])
+
+		for item in items:
+			obj.value.append(parse_val(item))
+
+		return obj
+
+	elif entry.isnumeric() and '.' not in entry:
+		return Object('INT', int(entry))
+
+	elif entry.isnumeric() and '.' in entry:
+		if entry.count('.') > 1:
+			raise ValueError("Floating point may not have several floats.")
+
+		return Object('FLOAT', float(entry))
+
+	elif entry.startswith('0x'):
+		return Object('INT', int(entry, 16))
+
+	elif entry[2:].isnumeric() and entry.startswith('0b'):
+		return Object('INT', int(entry, 2))
+
+	elif entry.startswith('$'):
+		return Object('VAR', entry[1:])
+
+	elif entry in ('TRUE', 'FALSE'):
+		return Object('BOOL', entry == 'TRUE')
+
+	elif entry == 'NULL':
+		return Object('NULL')
+
+	elif entry in ('STR', 'INT', 'FLOAT', 'BOOL', 'CMD', 'PATH', 'NULL'):
+		return Object('TYPE', entry)
+
+	else:
+		return Object('PATH', entry)
+
+def tokenize(literal: str) -> list[str]:
+	parts: list[str] = []
+	seq: str = ""
+	seq_type: str = None
+
+	ignore: bool = False
+	is_comment: bool = False
+
+	for idx, c in enumerate(literal):
+		if is_comment:
+			if c == '>' == literal[idx + 1]:
+				is_comment = False
+
+			continue
+
+		if c == '<' == literal[idx + 1]  and not (seq_type):
+			is_comment = True
+			continue
+
+		if c == ' ' and not (ignore or seq_type):
+			if seq != "":
+				parts.append(seq)
+				seq = ""
+
+			continue
+
+		if c == '\\':
+			ignore = not ignore
+			continue
+
+		if c == '"':
+			if seq_type == "str":
+				seq_type = None
+			elif seq_type is None:
+				seq_type = "str"
+
+		if c == '\'':
+			if seq_type == "singlestr":
+				seq_type = None
+			elif seq_type is None:
+				seq_type = "singlestr"
+
+		if c == '[':
+			if seq_type is None:
+				seq_type = "list"
+
+		if c == ']':
+			if seq_type == "list":
+				seq_type = None
+			elif seq_type is None:
+				raise SyntaxError("Mismatched brackets.")
+
+		if c == '(':
+			if seq_type is None:
+				seq_type = "_parenthesis"
+
+		if c == ')':
+			if seq_type == "_parenthesis":
+				seq_type = None
+			elif seq_type is None:
+				raise SyntaxError("Mismatched brackets.")
+
+		if c == '{':
+			if seq_type is None:
+				seq_type = "cmd"
+
+		if c == '}':
+			if seq_type == "cmd":
+				seq_type = None
+			elif seq_type is None:
+				raise SyntaxError("Mismatched brackets.")
+
+		if c == '<':
+			if seq_type is None:
+				seq_type = "test"
+
+		if c == '>':
+			if seq_type == "test":
+				seq_type = None
+			elif seq_type is None:
+				raise SyntaxError("Mismatched brackets.")
+
+		seq += c
+
+	if seq != "":
+		parts.append(seq)
+
+	return parts
+
+def parse_cmd(cmd: str) -> Command:
+	context: list[str] = []
+
+	command = Command()
+	command.unparsed = cmd
+
+	parts = tokenize(cmd)
+
+	curr_arg = None
+
+	for part in parts:
+		if part == "":
+			continue
+
+		if part in x_tokens.keys():
+			if curr_arg:
+				curr_arg.value = 1
+				curr_arg.type = "BOOL"
+				command.kwargs.append(curr_arg)
+
+				curr_arg = None
+
+			context.append(x_tokens[part])
+
+			curr_arg = Argument('value', Object('NULL'))
+			continue
+
+		if part[0:2] == '--':
+			if curr_arg:
+				curr_arg.value = 1
+				curr_arg.type = "BOOL"
+				command.kwargs.append(curr_arg)
+
+				curr_arg = None
+
+			context.append(part[2:])
+			continue
+
+		elif part[0] == '-':
+			if curr_arg:
+				if curr_arg.type == "BOOL":
+					command.kwargs.append(curr_arg)
+					curr_arg = Argument(part[1:], Object('NULL'))
+				else:
+					raise SyntaxError(f"Argument {curr_arg.name} was left undefined.")
+			else:
+				curr_arg = Argument(part[1:], Object('NULL'))
+
+		else:
+			val = parse_val(part)
+
+			if val.type == 'PATH' and command.path == '.':
+				command.path = part
+			else:
+				if curr_arg:
+					curr_arg.obj = val
+					command.kwargs.append(curr_arg)
+				else:
+					command.args.append(val)
+
+				curr_arg = None
+
+	command.context = context
+	return command
