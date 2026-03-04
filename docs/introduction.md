@@ -161,6 +161,18 @@ def add(env: arrowbit.Environment, a: int, b: int):
     env.export(arrowbit.Object('INT', result))
 ```
 
+You can also return a `str`, `int`, `float`, `bool` or `list` directly, and it will be converted by ArrowBit. If None is returned, then an `Object` with the `NULL` type will be automatically returned.
+
+```python
+@arrowbit.command(name='add')
+def add(env: arrowbit.Environment, a: int, b: int):
+    result = a + b
+    env.export(result)
+```
+
+**Warning:** We recommand you to use the Object class for compatibility issues.
+
+
 ## Object Types
 
 ArrowBit uses a typed object system:
