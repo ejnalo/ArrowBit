@@ -119,7 +119,7 @@ def parse_val(entry: str) -> Object:
 		}
 
 		for c in entry[1:-1]:
-			if not _is_open and c in _matches:
+			if not _is_open and c in _matches.keys():
 				_is_open = True
 				_closes = _matches[c]
 
@@ -176,23 +176,40 @@ def parse_val(entry: str) -> Object:
 def tokenize(literal: str) -> list[str]:
 	parts: list[str] = []
 	seq: str = ""
-	seq_type: str = None
 
 	ignore: bool = False
 	is_comment: bool = False
+	string_type: str = None
+	stack: list[str] = []
+
+	open_to_close = {
+		'[': ']',
+		'(': ')',
+		'{': '}',
+		'<': '>',
+	}
+
+	close_to_open = {
+		']': '[',
+		')': '(',
+		'}': '{',
+		'>': '<',
+	}
 
 	for idx, c in enumerate(literal):
+		next_c = literal[idx + 1] if idx + 1 < len(literal) else ''
+
 		if is_comment:
-			if c == '>' == literal[idx + 1]:
+			if c == '>' and next_c == '>':
 				is_comment = False
 
 			continue
 
-		if c == '<' == literal[idx + 1]  and not (seq_type):
+		if c == '<' and next_c == '<' and string_type is None and len(stack) == 0:
 			is_comment = True
 			continue
 
-		if c == ' ' and not (ignore or seq_type):
+		if c == ' ' and not (ignore or string_type or stack):
 			if seq != "":
 				parts.append(seq)
 				seq = ""
@@ -203,59 +220,30 @@ def tokenize(literal: str) -> list[str]:
 			ignore = not ignore
 			continue
 
-		if c == '"':
-			if seq_type == "str":
-				seq_type = None
-			elif seq_type is None:
-				seq_type = "str"
+		if c == '"' and not ignore:
+			if string_type == '"':
+				string_type = None
+			elif string_type is None:
+				string_type = '"'
 
-		if c == '\'':
-			if seq_type == "singlestr":
-				seq_type = None
-			elif seq_type is None:
-				seq_type = "singlestr"
+		if c == '\'' and not ignore:
+			if string_type == '\'':
+				string_type = None
+			elif string_type is None:
+				string_type = '\''
 
-		if c == '[':
-			if seq_type is None:
-				seq_type = "list"
-
-		if c == ']':
-			if seq_type == "list":
-				seq_type = None
-			elif seq_type is None:
-				raise SyntaxError("Mismatched brackets.")
-
-		if c == '(':
-			if seq_type is None:
-				seq_type = "_parenthesis"
-
-		if c == ')':
-			if seq_type == "_parenthesis":
-				seq_type = None
-			elif seq_type is None:
-				raise SyntaxError("Mismatched brackets.")
-
-		if c == '{':
-			if seq_type is None:
-				seq_type = "cmd"
-
-		if c == '}':
-			if seq_type == "cmd":
-				seq_type = None
-			elif seq_type is None:
-				raise SyntaxError("Mismatched brackets.")
-
-		if c == '<':
-			if seq_type is None:
-				seq_type = "test"
-
-		if c == '>':
-			if seq_type == "test":
-				seq_type = None
-			elif seq_type is None:
-				raise SyntaxError("Mismatched brackets.")
+		if string_type is None:
+			if c in open_to_close:
+				stack.append(c)
+			elif c in close_to_open:
+				if len(stack) == 0 or stack[-1] != close_to_open[c]:
+					raise SyntaxError("Mismatched brackets.")
+				stack.pop()
 
 		seq += c
+
+	if string_type is not None or len(stack) > 0:
+		raise SyntaxError("Mismatched brackets.")
 
 	if seq != "":
 		parts.append(seq)
