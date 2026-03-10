@@ -86,9 +86,14 @@ def parse_val(entry: str) -> Object:
 		return Object('STR', entry[1:-1])
 
 	elif (entry.startswith('{') and entry.endswith('}')):
-		return Object('CMD', parse_cmd(entry[1:-1]))
+		cmd = parse_script(entry[1:-1])
 
-	elif (entry.startswith('<') and entry.endswith('>')): # TODO: Real evaluation
+		if len(cmd) == 1:
+			return Object('CMD', parse_cmd(cmd[0]))
+
+		return Object('LIST', [ parse_cmd(c) for c in cmd ])
+
+	elif (entry.startswith('<') and entry.endswith('>')): # TODO: Real evaluation, not that dangerouss thing
 		condition = entry[1:-1]
 
 		result = eval(condition, {})
@@ -314,3 +319,48 @@ def parse_cmd(cmd: str) -> Command:
 
 	command.context = context
 	return command
+
+def parse_script(script: str) -> list[str]:
+	script = script.replace('\r', '')
+
+	stack = []
+	current = ''
+	skip = False
+
+	new_script = []
+
+	for c in script:
+		if skip:
+			skip = False
+			current += c
+			continue
+
+		if c == '\n':
+			continue
+
+		if c in ('"', "'", '{', '(', '[', '<'):
+			stack.append(c)
+
+		elif c in ('"', "'", '}', ')', ']', '>'):
+			if len(stack) == 0:
+				raise SyntaxError("Mismatched brackets in script.")
+
+			opening = stack.pop()
+
+			if (c == '"' and opening != '"') or (c == "'" and opening != "'") or (c == '}' and opening != '{') or (c == ')' and opening != '(') or (c == ']' and opening != '[') or (c == '>' and opening != '<'):
+				raise SyntaxError("Mismatched brackets in script.")
+
+		if c == '\\':
+			skip = True
+
+		if c == ';' and len(stack) == 0:
+			new_script.append(current.strip())
+			current = ''
+			continue
+
+		current += c
+
+	if current.strip():
+		new_script.append(current.strip())
+
+	return new_script
