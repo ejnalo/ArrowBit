@@ -322,6 +322,10 @@ def parse_cmd(cmd: str) -> Command:
 
 def parse_script(script: str) -> list[str]:
 	script = script.replace('\r', '')
+	script = '\n'.join([ line.strip() for line in script.split('\n') if line.strip() != '' ])
+
+	line = 1
+	column = 1
 
 	stack = []
 	current = ''
@@ -330,24 +334,41 @@ def parse_script(script: str) -> list[str]:
 	new_script = []
 
 	for c in script:
+
+		if c == '\n':
+			line += 1
+			column = 1
+			continue
+
 		if skip:
 			skip = False
 			current += c
 			continue
 
-		if c == '\n':
+		if stack[-1] if len(stack) > 0 else None in ('"', "'"):
+			current += c
+
+			if c == stack[-1]:
+				stack.pop()
+
 			continue
 
-		if c in ('"', "'", '{', '(', '[', '<'):
+		if c in ('"', "'"):
+			if len(stack) > 0 and stack[-1] == c:
+				stack.pop()
+			else:
+				stack.append(c)
+
+		elif c in ('{', '(', '[', '<'):
 			stack.append(c)
 
-		elif c in ('"', "'", '}', ')', ']', '>'):
+		elif c in ('}', ')', ']', '>'):
 			if len(stack) == 0:
 				raise SyntaxError("Mismatched brackets in script.")
 
 			opening = stack.pop()
 
-			if (c == '"' and opening != '"') or (c == "'" and opening != "'") or (c == '}' and opening != '{') or (c == ')' and opening != '(') or (c == ']' and opening != '[') or (c == '>' and opening != '<'):
+			if (c == '}' and opening != '{') or (c == ')' and opening != '(') or (c == ']' and opening != '[') or (c == '>' and opening != '<'):
 				raise SyntaxError("Mismatched brackets in script.")
 
 		if c == '\\':
@@ -359,6 +380,7 @@ def parse_script(script: str) -> list[str]:
 			continue
 
 		current += c
+		column += 1
 
 	if current.strip():
 		new_script.append(current.strip())
