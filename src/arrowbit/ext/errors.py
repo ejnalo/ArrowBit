@@ -13,8 +13,18 @@ class UserCancel(Error):
 
 
 class InvalidSyntax(Error):
-    def __init__(self, char: str, position: int):
-        message = f"Unexpected character '{char}' at  <{position}>."
+    def __init__(self, char: str, *position: int, **kwargs: str):
+        if 'pre' in kwargs:
+            print(kwargs['pre'])
+
+        if len(position) >= 2:
+            line, col = position[:2]
+            message = f"Unexpected character '{char}' at line {line}, column {col}."
+        elif len(position) == 1:
+            message = f"Unexpected character '{char}' at  <{position[0]}>."
+        else:
+            message = f"Unexpected character '{char}'."
+
         super().__init__(message, "SyntaxError")
 
 class UnknownName(Error):
