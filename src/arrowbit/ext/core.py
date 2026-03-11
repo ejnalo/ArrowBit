@@ -7,7 +7,7 @@ x_tokens = {
 	'-=': 'decrement',
 	'*=': 'multiply',
 	'/=': 'divide',
-	'//=': 'floor-divide',
+	'//=': 'euclidian',
 	'%=': 'modulus',
 	'^=': 'power'
 }

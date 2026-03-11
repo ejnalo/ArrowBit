@@ -1,6 +1,6 @@
 [project]
 name = "arrowbit"
-version = "0.1.6"
+version = "0.2.0"
 description = "arrowbit language"
 authors = [
 	{"name" = "happex", "email" = "110610727+okayhappex@users.noreply.github.com"}
