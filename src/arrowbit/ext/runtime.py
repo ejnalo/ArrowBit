@@ -1,7 +1,7 @@
 from inspect import Signature
 
 from .core import command_registry
-from .parser import Object, Command, parse_cmd, parse_val, tokenize
+from .parser import Object, Command, parse_cmd, parse_script, parse_val, tokenize
 from .commands import command
 from . import errors
 
@@ -64,10 +64,12 @@ class Runtime:
 		self.queue: list[Command] = []
 		self.cycle: int = 0
 
-	def load(self, file: str):
+	def load(self, source: str):
 		self.queue.clear()
 
-		for line in file.split('\n'):
+		lines = parse_script(source)
+
+		for line in lines:
 			cmd = parse_cmd(line.strip())
 			self.queue.append(cmd)
 

@@ -1,6 +1,7 @@
 import time
 from typing import Any
 
+from . import errors
 from .core import x_tokens
 
 
@@ -242,13 +243,13 @@ def tokenize(literal: str) -> list[str]:
 				stack.append(c)
 			elif c in close_to_open:
 				if len(stack) == 0 or stack[-1] != close_to_open[c]:
-					raise SyntaxError("Mismatched brackets.")
+					raise errors.InvalidSyntax("Mismatched brackets.")
 				stack.pop()
 
 		seq += c
 
 	if string_type is not None or len(stack) > 0:
-		raise SyntaxError("Mismatched brackets.")
+		raise errors.InvalidSyntax("Mismatched brackets.")
 
 	if seq != "":
 		parts.append(seq)
@@ -270,16 +271,7 @@ def parse_cmd(cmd: str) -> Command:
 			continue
 
 		if part in x_tokens.keys():
-			if curr_arg:
-				curr_arg.value = 1
-				curr_arg.type = "BOOL"
-				command.kwargs.append(curr_arg)
-
-				curr_arg = None
-
-			context.append(x_tokens[part])
-
-			curr_arg = Argument('value', Object('NULL'))
+			command.path = x_tokens[part]
 			continue
 
 		if part[0:2] == '--':
@@ -299,7 +291,7 @@ def parse_cmd(cmd: str) -> Command:
 					command.kwargs.append(curr_arg)
 					curr_arg = Argument(part[1:], Object('NULL'))
 				else:
-					raise SyntaxError(f"Argument {curr_arg.name} was left undefined.")
+					raise errors.InvalidSyntax(f"Argument {curr_arg.name} was left undefined.")
 			else:
 				curr_arg = Argument(part[1:], Object('NULL'))
 
@@ -322,7 +314,7 @@ def parse_cmd(cmd: str) -> Command:
 
 def parse_script(script: str) -> list[str]:
 	script = script.replace('\r', '')
-	script = '\n'.join([ line.strip() for line in script.split('\n') if line.strip() != '' ])
+	script = '\n'.join([ line.strip() for line in script.split('\n') ])
 
 	line = 1
 	column = 1
@@ -334,23 +326,16 @@ def parse_script(script: str) -> list[str]:
 	new_script = []
 
 	for c in script:
-
 		if c == '\n':
 			line += 1
 			column = 1
+			current += ' '
 			continue
 
 		if skip:
 			skip = False
 			current += c
-			continue
-
-		if stack[-1] if len(stack) > 0 else None in ('"', "'"):
-			current += c
-
-			if c == stack[-1]:
-				stack.pop()
-
+			column += 1
 			continue
 
 		if c in ('"', "'"):
@@ -364,12 +349,12 @@ def parse_script(script: str) -> list[str]:
 
 		elif c in ('}', ')', ']', '>'):
 			if len(stack) == 0:
-				raise SyntaxError("Mismatched brackets in script.")
+				raise errors.InvalidSyntax(c, line, column)
 
 			opening = stack.pop()
 
 			if (c == '}' and opening != '{') or (c == ')' and opening != '(') or (c == ']' and opening != '[') or (c == '>' and opening != '<'):
-				raise SyntaxError("Mismatched brackets in script.")
+				raise errors.InvalidSyntax("Mismatched brackets in script.")
 
 		if c == '\\':
 			skip = True
@@ -384,5 +369,7 @@ def parse_script(script: str) -> list[str]:
 
 	if current.strip():
 		new_script.append(current.strip())
+
+	new_script = [ line.strip() for line in new_script if line.strip() != '' ]
 
 	return new_script
