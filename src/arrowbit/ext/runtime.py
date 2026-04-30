@@ -1,8 +1,7 @@
-from inspect import Signature
-
-from .core import command_registry
-from .parser import Object, Command, parse_cmd, parse_script, parse_val, tokenize
+from ..utils.ast import build_ast, ScriptNode
 from .commands import command
+from .core import command_registry
+from .parser import Object
 from . import errors
 
 
@@ -53,156 +52,59 @@ default_env = Environment()
 
 
 class Runtime:
-	def __init__(self, main: bool = True):
-		self.__main: bool = main
+    def __init__(self, main: bool = True):
+        self.__main: bool = main
+        self.env: Environment = default_env
+        self.running: bool = False
+        self.is_cycle: bool = True
+        self.cycle: int = 0
 
-		self.env = default_env
-		self.running: bool = False
-		self.is_cycle: bool = True
+        self.ast: ScriptNode = None
 
-		self.__iteration = 0
-		self.queue: list[Command] = []
-		self.cycle: int = 0
+    def load(self, source: str):
+        self.ast = build_ast(source)
 
-	def load(self, source: str):
-		self.queue.clear()
+    def run_node(self, node, env):
+        return node.eval(self, env)
 
-		lines = parse_script(source)
+    def start(self, env: Environment = None):
+        if self.running:
+            raise RuntimeError("Runtime already running")
 
-		for line in lines:
-			cmd = parse_cmd(line.strip())
-			self.queue.append(cmd)
+        if env:
+            self.env = env
 
-	def start(self, env: Environment = None):
-		if self.running: raise RuntimeError('Runtime already running')
+        self.running = True
 
-		if env: self.env = env
+        try:
+            if self.__main and 'on_start' in command_registry:
+                command_registry['on_start']["function"](self.env)
 
-		if self.__main and 'on_start' in command_registry:
-			cmd = command_registry['on_start']
-			_on_start = cmd["function"]
-			_on_start(self.env)
+            while True:
+                self.ast.eval(self, self.env)
 
-		self.__iteration = 0
-		self.running = True
+                if not self.is_cycle:
+                    break
 
-		try:
-			while self.__iteration < len(self.queue):
-				line = self.queue[self.__iteration]
-				self.execute(line.unparsed)
+                self.cycle += 1
 
-				self.__iteration += 1
+            self.running = False
 
-				if self.__iteration >= len(self.queue):
-					if self.is_cycle:
-						self.__iteration = 0
-						self.cycle += 1
+        except KeyboardInterrupt:
+            if self.__main and 'on_error' in command_registry:
+                return command_registry['on_error']["function"](
+                    self.env,
+                    errors.UserCancel()
+                )
 
-		except KeyboardInterrupt as e:
-			if self.__main and 'on_error' in command_registry:
-				cmd = command_registry['on_error']
-				_on_error = cmd["function"]
-				return _on_error(env, errors.UserCancel())
-			else:
-				raise e
-		except SystemExit:
-			pass
+            raise
 
-		if self.__main and 'on_exit' in command_registry:
-			cmd = command_registry['on_exit']
-			_on_exit = cmd["function"]
-			_on_exit(self.env)
+        except errors.Error as e:
+            if self.__main and 'on_error' in command_registry:
+                return command_registry['on_error']["function"](self.env, e)
 
+            raise
 
-	def _convert_object(self, token: Object, env: Environment = None) -> Object:
-		if not env: env = self.env
-
-		if token.type == 'VAR':
-			try:
-				return env.variables[token.value]
-			except KeyError:
-				raise errors.UnknownName(token.value)			
-
-		elif token.type == 'CMD':
-			tenv = Environment(env.strict)
-			self.execute(token.value.unparsed, tenv)
-			return tenv.result
-
-		else:
-			return token
-
-	def _tokenize_condition(self, entry: str, env: Environment = None) -> str:
-		"""
-		Turns variables et inputs into raw values (STR, INT, BOOL...)
-		"""
-
-		if not env: env = self.env
-
-		tokens: list[str] = tokenize(entry[1:-1])
-
-		for token in tokens:
-			token = self._convert_object(parse_val(token)).value
-
-		return '<' + ' '.join(tokens) + '>'
-
-
-	def execute(self, seq: str, env: Environment = None):
-		if not env: env = self.env
-
-		if seq == '' or seq.strip().startswith('#'):
-			return
-
-		try:
-			cmd = parse_cmd(seq)
-
-			for flag in cmd.context:
-				env.readonly['ctx'].value.append(flag)
-
-			for arg in cmd.kwargs:
-				if arg.obj.type in ('CMD', 'VAR'):
-					arg.obj = self._convert_object(arg.obj)
-				elif arg.obj.type == 'CONDITION':
-					tokenized = self._tokenize_condition(arg.obj.value)
-					arg.obj = parse_val(tokenized)
-
-			args = []
-
-			for obj in cmd.args:
-				if obj.type in ('CMD', 'VAR'):
-					args.append(self._convert_object(obj))
-				elif obj.type == 'CONDITION':
-					tokenized = self._tokenize_condition(obj.value)
-					args.append(parse_val(tokenized))
-				else:
-					args.append(obj)
-
-
-			func = command_registry.get(cmd.path)
-
-			if not func:
-				raise errors.UnknownName(cmd.path)
-
-			callback = func["function"]
-			sig: Signature = func["signature"]
-
-			bound_args = sig.bind_partial(**cmd.map_kwargs())
-			args = tuple([ obj.value for obj in args ])
-
-			try:
-				sig.bind(env, *args, **bound_args.kwargs)
-			except TypeError as e:
-				msg = str(e)
-
-				if "missing" in msg:
-					raise errors.MissingArgument(cmd.path) from e
-				elif "unexpected" in msg or "too many" in msg:
-					raise errors.TooManyArguments(cmd.path) from e
-
-			return callback(env, *args, **bound_args.kwargs)
-		except errors.Error as e:
-			if self.__main and 'on_error' in command_registry:
-				cmd = command_registry['on_error']
-				_on_error = cmd["function"]
-				return _on_error(env, e)
-			else:
-				raise e
+        finally:
+            if self.__main and 'on_exit' in command_registry:
+                command_registry['on_exit']["function"](self.env)
