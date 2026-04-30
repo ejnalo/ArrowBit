@@ -16,8 +16,8 @@ class Cog:
             return command(self.name + '.' + name)
 
 def load_cog(cog: Cog, name: str = '__main__'):
-    if not issubclass(type(cog), Cog):
-        raise TypeError(f"Expected a Cog object, got {type(Cog).__name__}.")
+    if not isinstance(cog, Cog):
+        raise TypeError(f"Expected a Cog object, got {type(cog).__name__}.")
 
     cog.name = name
     cog.setup()
