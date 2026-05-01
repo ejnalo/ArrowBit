@@ -198,8 +198,18 @@ class ScriptNode(ASTNode):
         return output + (deep * '\t') + '<ENDSCRIPT>'
 
     def eval(self, runtime: Runtime, env: Environment) -> None:
+        last = None
+
         for stmt in self.statements:
-            runtime.run_node(stmt, env)
+            last = runtime.run_node(stmt, env)
+
+        if last is None:
+            if getattr(env, 'result', None) is not None:
+                return env.result
+
+            return Object('NULL')
+
+        return last
 
 def build_ast_command(cmd: Command) -> ASTNode:
     def convert(obj: Object) -> ASTNode:
@@ -242,7 +252,6 @@ def build_ast_command(cmd: Command) -> ASTNode:
             return ValueNode(obj)
 
     def build_chain(c: Command) -> ASTNode:
-        # Check for loop constructs at top level
         if c.path == 'for':
             if len(c.args) != 3:
                 raise errors.InvalidSyntax("Invalid for loop syntax")
