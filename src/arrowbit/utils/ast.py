@@ -53,11 +53,31 @@ class FallbackNode(ASTNode):
         return output + (deep * '\t') + "<ENDFALLBACK>"
 
     def eval(self, runtime: Runtime, env: Environment) -> Any:
+        local_env: Environment = Environment()
+        local_env.herit(env)
+        local_env.result = Object('NULL')
+
         last_error = None
 
         for node in self.nodes:
             try:
-                return node.eval(runtime, env)
+                result = node.eval(runtime, local_env)
+
+                success = False
+
+                if result is None:
+                    success = False
+                elif isinstance(result, Object):
+                    if result.type == 'NULL':
+                        success = False
+                    else:
+                        success = bool(result.value)
+                else:
+                    success = bool(result)
+
+                if success and local_env.result.type != 'NULL':
+                    return result
+                continue
             except Exception as e:
                 last_error = e
                 continue
