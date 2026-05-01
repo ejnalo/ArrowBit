@@ -150,15 +150,16 @@ class ForLoopNode(ASTNode):
         return output + (deep * '\t') + '<ENDFORLOOP>'
 
     def eval(self, runtime: Runtime, env: Environment) -> None:
-        localenv = env.copy()
-        localenv.variables[self.varname] = None
+        local_env: Environment = Environment()
+        local_env.herit(env)
+        local_env.variables[self.varname] = None
         iterable = self.iterable.eval(runtime, env).value
 
         for item in iterable:
-            localenv.variables[self.varname] = item
+            local_env.variables[self.varname] = item
 
             for stmt in self.statements:
-                runtime.run_node(stmt, localenv)
+                runtime.run_node(stmt, local_env)
 
 class WhileLoopNode(ASTNode):
     def __init__(self, statements: list[ASTNode], condition: ASTNode):
@@ -175,12 +176,13 @@ class WhileLoopNode(ASTNode):
         return output + (deep * '\t') + '<ENDWHILELOOP>'
 
     def eval(self, runtime: Runtime, env: Environment) -> None:
-        localenv = env.copy()
+        local_env: Environment = Environment()
+        local_env.herit(env)
         condition = self.condition.eval(runtime, env).value
 
         while condition:
             for stmt in self.statements:
-                runtime.run_node(stmt, localenv)
+                runtime.run_node(stmt, local_env)
 
             condition = self.condition.eval(runtime, env).value
 
